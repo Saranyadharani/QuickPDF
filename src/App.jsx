@@ -13,6 +13,7 @@ import { ImageToPdf } from "./pages/ImageToPdf/ImageToPdf";
 import { Compress } from "./pages/Compress/Compress";
 import { Rotate } from "./pages/Rotate/Rotate";
 import { Organize } from "./pages/Organize/Organize";
+import { PdfToImage } from "./pages/PDFtoImage/PDFtoImage";
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
             <Route path="/compress" element={<Compress />} />
             <Route path="/rotate" element={<Rotate />} />
             <Route path="/organize" element={<Organize />} />
+            <Route path="/pdf-to-image" element={<PdfToImage />} />
           </Routes>
         </PageContainer>
       </div>

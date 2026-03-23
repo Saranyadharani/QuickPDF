@@ -1,6 +1,13 @@
 import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
 import * as pdfjsLib from "pdfjs-dist";
 
+// Vite resolves this at build time from node_modules — no CDN dependency
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url,
+).toString();
+import JSZip from "jszip";
+
 // merging multiple PDFs into one
 export const mergePdfs = async (files) => {
   if (!files || files.length === 0) {
@@ -146,11 +153,6 @@ export const imageToPdf = async (files) => {
   return new Blob([pdfBytes], { type: "application/pdf" });
 };
 
-// Vite resolves this at build time from node_modules — no CDN dependency
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url,
-).toString();
 
 export const compressWithQuality = async (file, quality = 0.5) => {
   const arrayBuffer = await file.arrayBuffer();
@@ -248,4 +250,40 @@ export const organizePdf = async (file, pageIndices) => {
 
   const pdfBytes = await outputPdf.save();
   return new Blob([pdfBytes], { type: "application/pdf" });
+};
+
+export const extractImagesFromPdf = async (file, onProgress) => {
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+  const zip = new JSZip();
+
+  for (let i = 1; i <= pdf.numPages; i++) {
+    // Update the UI progress state
+    if (onProgress) onProgress(i, pdf.numPages);
+
+    const page = await pdf.getPage(i);
+    // Scale 2.0 ensures the exported JPEGs are high-resolution and crisp
+    const viewport = page.getViewport({ scale: 2.0 });
+
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    // Convert the canvas to a high-quality JPEG blob
+    const blob = await new Promise((resolve) => {
+      canvas.toBlob(resolve, 'image/jpeg', 0.9);
+    });
+
+    // Add the image to our ZIP archive, padded with zeros (e.g., page-01.jpg)
+    const pageString = i.toString().padStart(pdf.numPages.toString().length, '0');
+    zip.file(`${file.name.replace('.pdf', '')}_page-${pageString}.jpg`, blob);
+  }
+
+  // Generate the final ZIP file
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  return zipBlob;
 };

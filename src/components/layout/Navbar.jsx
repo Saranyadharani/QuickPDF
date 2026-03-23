@@ -59,6 +59,12 @@ export function Navbar() {
             >
               Organize
             </Link>
+            <Link
+              to="/pdf-to-image"
+              className="text-sm font-medium text-zinc-400 hover:text-white transition-colors"
+            >
+              PDF To Image
+            </Link>
           </div>
         </div>
       </div>
