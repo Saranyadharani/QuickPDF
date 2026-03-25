@@ -1,6 +1,8 @@
 // The wallet address that receives all payments — replace this before going live.
 export const TREASURY_ADDRESS = "0xdCdCCB2F5eb9Ae47c6C4ADA7E2a549a22e27c0e8";
 
+// Hardcoded Sepolia testnet price — 0.01 SepoliaETH (test money, no real value)
+export const SEPOLIA_ETH_PRICE = 10000000000000000n; // 0.01 ETH in wei
 
 // Minimal ERC-20 ABI — only the transfer() function we actually call
 export const ERC20_TRANSFER_ABI = [
