@@ -14,4 +14,5 @@ export const FREE_LIMITS = {
   grayscale:  { maxFileSizeMb: 100 },
   pageNumbers: { maxFileSizeMb: 100 },
   lockPdf:     { maxFileSizeMb: 100 },
+  editPdf:     { maxFileSizeMb: 100 },
 };

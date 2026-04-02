@@ -387,3 +387,133 @@ export const lockPdf = async (file, userPassword, ownerPassword) => {
 
   return new Blob([encryptedBytes], { type: "application/pdf" });
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// applyEdits — bake canvas annotations into a PDF
+// annotations: [{type, pageIndex, color, opacity, strokeWidth, ...shape}]
+// pages:       [{width, height, pdfWidth, pdfHeight}]  (rendered at RENDER_SCALE)
+// ─────────────────────────────────────────────────────────────────────────────
+export const applyEdits = async (file, annotations, pages) => {
+  if (!file) throw new Error("No file provided.");
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const font   = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pdfPages = pdfDoc.getPages();
+
+  function hexToRgb(hex) {
+    const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return r ? rgb(parseInt(r[1],16)/255, parseInt(r[2],16)/255, parseInt(r[3],16)/255) : rgb(0,0,0);
+  }
+
+  for (const ann of annotations) {
+    const info    = pages[ann.pageIndex];
+    const pdfPage = pdfPages[ann.pageIndex];
+    if (!info || !pdfPage) continue;
+
+    // Scale factors: canvas-px → PDF-points
+    const sx = info.pdfWidth  / info.width;
+    const sy = info.pdfHeight / info.height;
+    const toX = (cx) => cx * sx;
+    const toY = (cy) => info.pdfHeight - cy * sy;  // flip Y (PDF origin = bottom-left)
+    const clr  = hexToRgb(ann.color);
+
+    switch (ann.type) {
+      case "draw": {
+        if (!ann.points || ann.points.length < 2) break;
+        const step = Math.max(1, Math.floor(ann.points.length / 300));
+        const pts  = ann.points.filter((_, i) => i % step === 0);
+        if (pts.length < 2) pts.push(ann.points.at(-1));
+        for (let i = 1; i < pts.length; i++) {
+          pdfPage.drawLine({
+            start: { x: toX(pts[i-1].x), y: toY(pts[i-1].y) },
+            end:   { x: toX(pts[i].x),   y: toY(pts[i].y)   },
+            thickness: (ann.strokeWidth ?? 2) * sx,
+            color: clr,
+            opacity: ann.opacity ?? 1,
+          });
+        }
+        break;
+      }
+      case "highlight": {
+        const lx = Math.min(ann.x, ann.x2), ly = Math.min(ann.y, ann.y2);
+        const w  = Math.abs(ann.x2 - ann.x), h = Math.abs(ann.y2 - ann.y);
+        pdfPage.drawRectangle({
+          x: toX(lx), y: toY(ly + h), width: w * sx, height: h * sy,
+          color: clr, opacity: 0.35,
+        });
+        break;
+      }
+      case "rect": {
+        const lx = Math.min(ann.x, ann.x2), ly = Math.min(ann.y, ann.y2);
+        const w  = Math.abs(ann.x2 - ann.x), h = Math.abs(ann.y2 - ann.y);
+        pdfPage.drawRectangle({
+          x: toX(lx), y: toY(ly + h), width: w * sx, height: h * sy,
+          borderColor: clr, borderWidth: (ann.strokeWidth ?? 2) * sx,
+          borderOpacity: ann.opacity ?? 1, opacity: 0,
+        });
+        break;
+      }
+      case "text": {
+        const ptSize = (ann.fontSize ?? 18) * sx;
+        pdfPage.drawText(ann.text, {
+          x: toX(ann.x), y: toY(ann.y),
+          size: Math.max(4, ptSize), font, color: clr, opacity: ann.opacity ?? 1,
+        });
+        break;
+      }
+    }
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return new Blob([pdfBytes], { type: "application/pdf" });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// editPdfText — replace existing text in a PDF (cover-and-redraw strategy)
+// textEdits:  { [itemId]: newText }
+// textItems:  [{id, pageIndex, pdfX, pdfY, pdfW, fontSize, str}]
+// ─────────────────────────────────────────────────────────────────────────────
+export const editPdfText = async (file, textEdits, textItems) => {
+  if (!file) throw new Error("No file provided.");
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdfDoc   = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const font     = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const pdfPages = pdfDoc.getPages();
+
+  for (const [itemId, newText] of Object.entries(textEdits)) {
+    const item = textItems.find(t => t.id === itemId);
+    if (!item || newText === item.str) continue;
+
+    const page = pdfPages[item.pageIndex];
+    if (!page) continue;
+
+    const fs  = Math.min(Math.max(item.fontSize, 4), 144);
+    const pad = 1;
+
+    // 1. Erase original with a white rectangle
+    page.drawRectangle({
+      x: item.pdfX - pad,
+      y: item.pdfY - pad,
+      width:  Math.max(item.pdfW + pad * 2, 6),
+      height: fs * 1.25 + pad * 2,
+      color:   rgb(1, 1, 1),
+      opacity: 1,
+    });
+
+    // 2. Draw replacement text
+    if (newText.trim()) {
+      try {
+        page.drawText(String(newText), {
+          x: item.pdfX, y: item.pdfY,
+          size: fs, font,
+          color: rgb(0, 0, 0),
+        });
+      } catch { /* skip un-drawable characters */ }
+    }
+  }
+
+  const bytes = await pdfDoc.save();
+  return new Blob([bytes], { type: "application/pdf" });
+};
